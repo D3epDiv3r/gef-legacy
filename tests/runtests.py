@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python2.7
 #
 # Run tests by spawning a gdb instance for every command.
 #
@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import re
 
 from helpers import gdb_run_cmd, \
     gdb_run_silent_cmd, \
@@ -35,6 +36,13 @@ class GefUnitTestGeneric(unittest.TestCase):
     def assertFailIfInactiveSession(buf): #pylint: disable=invalid-name
         if "No debugging session active" not in buf:
             raise AssertionError("No debugging session inactive warning")
+
+    @staticmethod
+    def assertRegex(buf, regex): #pylint: disable=invalid-name
+        p = re.compile(regex, re.IGNORECASE)
+        if p.search(buf) is None:
+            raise AssertionError("Cannot find pattern '{}' in '{}'".format(regex, buf))
+
 
 
 class TestGefCommands(GefUnitTestGeneric): #pylint: disable=too-many-public-methods
@@ -62,15 +70,15 @@ class TestGefCommands(GefUnitTestGeneric): #pylint: disable=too-many-public-meth
 
         target = "tests/binaries/checksec-no-canary.out"
         res = gdb_run_cmd(cmd, target=target)
-        self.assertIn("Canary                        : ✘", res)
+        self.assertIn("Canary                        : x", res)
 
         target = "tests/binaries/checksec-no-nx.out"
         res = gdb_run_cmd(cmd, target=target)
-        self.assertIn("NX                            : ✘", res)
+        self.assertIn("NX                            : x", res)
 
         target = "tests/binaries/checksec-no-pie.out"
         res = gdb_run_cmd(cmd, target=target)
-        self.assertIn("PIE                           : ✘", res)
+        self.assertIn("PIE                           : x", res)
         return
 
     def test_cmd_dereference(self):
@@ -608,6 +616,7 @@ class TestGdbFunctions(GefUnitTestGeneric):
         self.assertRegex(res, r"\+0x0*20: *0x0000000000000000\n")
         return
 
+
 class TestGefMisc(GefUnitTestGeneric):
     """Tests external functionality."""
 
@@ -615,12 +624,12 @@ class TestGefMisc(GefUnitTestGeneric):
         tempdir = tempfile.mkdtemp()
         update_gef = os.path.join(tempdir, "gef.py")
         subprocess.call(["cp", "/tmp/gef.py", update_gef])
-        status = subprocess.call(["python3", update_gef, "--update"])
+        status = subprocess.call(["python2.7", update_gef, "--update"])
         self.assertEqual(status, 0)
+        return
 
 
 def run_tests(name=None):
-
     runner = unittest.TextTestRunner(verbosity=3)
     unittest.main(testRunner=runner)
 

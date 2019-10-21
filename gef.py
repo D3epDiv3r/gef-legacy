@@ -2,7 +2,8 @@
 #
 #
 #######################################################################################
-# GEF - Multi-Architecture GDB Enhanced Features for Exploiters & Reverse-Engineers
+# GEF-Legacy
+#  - Multi-Architecture GDB Enhanced Features for Exploiters & Reverse-Engineers
 #
 # by  @_hugsy_
 #######################################################################################
@@ -12,11 +13,14 @@
 # devs and reversers, to provides additional features to GDB using the Python
 # API to assist during the process of dynamic analysis.
 #
-# GEF fully relies on GDB API and other Linux-specific sources of information
-# (such as /proc/<pid>). As a consequence, some of the features might not work
-# on custom or hardened systems such as GrSec.
+# GEF-Legacy is the Python2 only version of the original GEF, which officially stopped
+# supporting by default Python2 when it became EOL (01/01/2020). GEF-Legacy doesn't
+# offer all the broad set of features that original GEF as only the command Python2
+# compatible can be found. In addition, as of 01/01/2020, no new feature is integrated
+# to this code base, although functional bugs are still being taken care of. Please
+# report them if you discover any.
 #
-# It has full support for both Python2 and Python3 and works on
+# GEF-Legacy has full support for both Python2 and works on
 #   * x86-32 & x86-64
 #   * arm v5,v6,v7
 #   * aarch64 (armv8)
@@ -24,7 +28,7 @@
 #   * powerpc & powerpc64
 #   * sparc & sparc64(v9)
 #
-# Requires GDB 7.x compiled with Python (2.x, or 3.x)
+# Requires GDB 7.x compiled with Python2
 #
 # To start: in gdb, type `source /path/to/gef.py`
 #
@@ -84,66 +88,40 @@ import time
 import traceback
 
 
-PYTHON_MAJOR = sys.version_info[0]
 
+from HTMLParser import HTMLParser #pylint: disable=import-error
+from cStringIO import StringIO #pylint: disable=import-error
+from urllib import urlopen #pylint: disable=no-name-in-module
+import ConfigParser as configparser #pylint: disable=import-error
+import xmlrpclib #pylint: disable=import-error
 
-if PYTHON_MAJOR == 2:
-    from HTMLParser import HTMLParser #pylint: disable=import-error
-    from cStringIO import StringIO #pylint: disable=import-error
-    from urllib import urlopen #pylint: disable=no-name-in-module
-    import ConfigParser as configparser #pylint: disable=import-error
-    import xmlrpclib #pylint: disable=import-error
+# Compat Py2/3 hacks
+def range(*args):
+   """
+   Replace range() builtin with an iterator version.
+   """
+   if len(args) < 1:
+       raise TypeError()
+   start, end, step = 0, args[0], 1
+   if len(args) == 2: start, end = args
+   if len(args) == 3: start, end, step = args
+   for n in itertools.count(start=start, step=step):
+       if (step>0 and n >= end) or (step<0 and n<=end): break
+       yield n
 
-    # Compat Py2/3 hacks
-    def range(*args):
-        """Replace range() builtin with an iterator version."""
-        if len(args) < 1:
-            raise TypeError()
-        start, end, step = 0, args[0], 1
-        if len(args) == 2: start, end = args
-        if len(args) == 3: start, end, step = args
-        for n in itertools.count(start=start, step=step):
-            if (step>0 and n >= end) or (step<0 and n<=end): break
-            yield n
+FileNotFoundError = IOError #pylint: disable=redefined-builtin
+ConnectionRefusedError = socket.error #pylint: disable=redefined-builtin
 
-    FileNotFoundError = IOError #pylint: disable=redefined-builtin
-    ConnectionRefusedError = socket.error #pylint: disable=redefined-builtin
-
-    LEFT_ARROW = "<-"
-    RIGHT_ARROW = "->"
-    DOWN_ARROW = "\\->"
-    HORIZONTAL_LINE = "-"
-    VERTICAL_LINE = "|"
-    CROSS = "x"
-    TICK = "v"
-    GEF_PROMPT = "gef> "
-    GEF_PROMPT_ON = "\001\033[1;32m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
-    GEF_PROMPT_OFF = "\001\033[1;31m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
-
-elif PYTHON_MAJOR == 3:
-    from html.parser import HTMLParser #pylint: disable=import-error
-    from io import StringIO
-    from urllib.request import urlopen #pylint: disable=import-error,no-name-in-module
-    import configparser
-    import xmlrpc.client as xmlrpclib #pylint: disable=import-error
-
-    # Compat Py2/3 hack
-    long = int
-    unicode = str
-
-    LEFT_ARROW = " \u2190 "
-    RIGHT_ARROW = " \u2192 "
-    DOWN_ARROW = "\u21b3"
-    HORIZONTAL_LINE = "\u2500"
-    VERTICAL_LINE = "\u2502"
-    CROSS = "\u2718 "
-    TICK = "\u2713 "
-    GEF_PROMPT = "gef\u27a4  "
-    GEF_PROMPT_ON = "\001\033[1;32m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
-    GEF_PROMPT_OFF = "\001\033[1;31m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
-
-else:
-    raise Exception("WTF is this Python version??")
+LEFT_ARROW = "<-"
+RIGHT_ARROW = "->"
+DOWN_ARROW = "\\->"
+HORIZONTAL_LINE = "-"
+VERTICAL_LINE = "|"
+CROSS = "x"
+TICK = "v"
+GEF_PROMPT = "gef> "
+GEF_PROMPT_ON = "\001\033[1;32m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
+GEF_PROMPT_OFF = "\001\033[1;31m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
 
 
 def http_get(url):
@@ -163,7 +141,7 @@ def update_gef(argv):
     1 on failure. """
     gef_local = os.path.realpath(argv[0])
     hash_gef_local = hashlib.sha512(open(gef_local, "rb").read()).digest()
-    gef_remote = "https://raw.githubusercontent.com/hugsy/gef/master/gef.py"
+    gef_remote = "https://raw.githubusercontent.com/hugsy/gef-legacy/master/gef.py"
     gef_remote_data = http_get(gef_remote)
     if gef_remote_data is None:
         print("[-] Failed to get remote gef")
@@ -223,70 +201,68 @@ current_arch = None
 highlight_table = {}
 ANSI_SPLIT_RE = "(\033\[[\d;]*m)"
 
-if PYTHON_MAJOR==3:
-    lru_cache = functools.lru_cache #pylint: disable=no-member
-else:
-    def lru_cache(maxsize = 128):
-        """Port of the Python3 LRU cache mechanism provided by itertools."""
-        class GefLruCache(object):
-            """Local LRU cache for Python2."""
-            def __init__(self, input_func, max_size):
-                self._input_func        = input_func
-                self._max_size          = max_size
-                self._caches_dict       = {}
-                self._caches_info       = {}
-                return
 
-            def cache_info(self, caller=None):
-                """Return a string with statistics of cache usage."""
-                if caller not in self._caches_dict:
-                    return ""
-                hits = self._caches_info[caller]["hits"]
-                missed = self._caches_info[caller]["missed"]
-                cursz = len(self._caches_dict[caller])
-                return "CacheInfo(hits={}, misses={}, maxsize={}, currsize={})".format(hits, missed, self._max_size, cursz)
+def lru_cache(maxsize = 128):
+    """Port of the Python3 LRU cache mechanism provided by itertools."""
+    class GefLruCache(object):
+        """Local LRU cache for Python2."""
+        def __init__(self, input_func, max_size):
+            self._input_func        = input_func
+            self._max_size          = max_size
+            self._caches_dict       = {}
+            self._caches_info       = {}
+            return
 
-            def cache_clear(self, caller=None):
-                """Clear a cache."""
-                if caller in self._caches_dict:
-                    self._caches_dict[caller] = collections.OrderedDict()
-                return
+        def cache_info(self, caller=None):
+            """Return a string with statistics of cache usage."""
+            if caller not in self._caches_dict:
+                return ""
+            hits = self._caches_info[caller]["hits"]
+            missed = self._caches_info[caller]["missed"]
+            cursz = len(self._caches_dict[caller])
+            return "CacheInfo(hits={}, misses={}, maxsize={}, currsize={})".format(hits, missed, self._max_size, cursz)
 
-            def __get__(self, obj, objtype):
-                """Cache getter."""
-                return_func = functools.partial(self._cache_wrapper, obj)
-                return_func.cache_clear = functools.partial(self.cache_clear, obj)
-                return functools.wraps(self._input_func)(return_func)
+        def cache_clear(self, caller=None):
+            """Clear a cache."""
+            if caller in self._caches_dict:
+                self._caches_dict[caller] = collections.OrderedDict()
+            return
 
-            def __call__(self, *args, **kwargs):
-                """Invoking the wrapped function, by attempting to get its value from cache if existing."""
-                return self._cache_wrapper(None, *args, **kwargs)
+        def __get__(self, obj, objtype):
+            """Cache getter."""
+            return_func = functools.partial(self._cache_wrapper, obj)
+            return_func.cache_clear = functools.partial(self.cache_clear, obj)
+            return functools.wraps(self._input_func)(return_func)
 
-            __call__.cache_clear = cache_clear
-            __call__.cache_info  = cache_info
+        def __call__(self, *args, **kwargs):
+            """Invoking the wrapped function, by attempting to get its value from cache if existing."""
+            return self._cache_wrapper(None, *args, **kwargs)
 
-            def _cache_wrapper(self, caller, *args, **kwargs):
-                """Defines the caching mechanism."""
-                kwargs_key = "".join(map(lambda x : str(x) + str(type(kwargs[x])) + str(kwargs[x]), sorted(kwargs)))
-                key = "".join(map(lambda x : str(type(x)) + str(x) , args)) + kwargs_key
-                if caller not in self._caches_dict:
-                    self._caches_dict[caller] = collections.OrderedDict()
-                    self._caches_info[caller] = {"hits":0, "missed":0}
+        __call__.cache_clear = cache_clear
+        __call__.cache_info  = cache_info
 
-                cur_caller_cache_dict = self._caches_dict[caller]
-                if key in cur_caller_cache_dict:
-                    self._caches_info[caller]["hits"] += 1
-                    return cur_caller_cache_dict[key]
+        def _cache_wrapper(self, caller, *args, **kwargs):
+            """Defines the caching mechanism."""
+            kwargs_key = "".join(map(lambda x : str(x) + str(type(kwargs[x])) + str(kwargs[x]), sorted(kwargs)))
+            key = "".join(map(lambda x : str(type(x)) + str(x) , args)) + kwargs_key
+            if caller not in self._caches_dict:
+                self._caches_dict[caller] = collections.OrderedDict()
+                self._caches_info[caller] = {"hits":0, "missed":0}
 
-                self._caches_info[caller]["missed"] += 1
-                if self._max_size is not None:
-                    if len(cur_caller_cache_dict) >= self._max_size:
-                        cur_caller_cache_dict.popitem(False)
-
-                cur_caller_cache_dict[key] = self._input_func(caller, *args, **kwargs) if caller != None else self._input_func(*args, **kwargs)
+            cur_caller_cache_dict = self._caches_dict[caller]
+            if key in cur_caller_cache_dict:
+                self._caches_info[caller]["hits"] += 1
                 return cur_caller_cache_dict[key]
 
-        return lambda input_func: functools.wraps(input_func)(GefLruCache(input_func, maxsize))
+            self._caches_info[caller]["missed"] += 1
+            if self._max_size is not None:
+                if len(cur_caller_cache_dict) >= self._max_size:
+                    cur_caller_cache_dict.popitem(False)
+
+            cur_caller_cache_dict[key] = self._input_func(caller, *args, **kwargs) if caller != None else self._input_func(*args, **kwargs)
+            return cur_caller_cache_dict[key]
+
+    return lambda input_func: functools.wraps(input_func)(GefLruCache(input_func, maxsize))
 
 
 def reset_all_caches():
@@ -838,7 +814,7 @@ class GlibcChunk:
             self.chunk_base_address = addr
             self.address = addr + 2 * self.ptrsize
         else:
-            self.chunk_base_address = int(addr - 2 * self.ptrsize)
+            self.chunk_base_address = long(addr - 2 * self.ptrsize)
             self.address = addr
 
         self.size_addr  = int(self.address - self.ptrsize)
@@ -1087,15 +1063,10 @@ def show_last_exception():
 
 def gef_pystring(x):
     """Python 2 & 3 compatibility function for strings handling."""
-    res = str(x, encoding="utf-8") if PYTHON_MAJOR == 3 else x
+    res = x
     substs = [("\n","\\n"), ("\r","\\r"), ("\t","\\t"), ("\v","\\v"), ("\b","\\b"), ]
     for x,y in substs: res = res.replace(x,y)
     return res
-
-
-def gef_pybytes(x):
-    """Python 2 & 3 compatibility function for bytes handling."""
-    return bytes(str(x), encoding="utf-8") if PYTHON_MAJOR == 3 else x
 
 
 @lru_cache()
@@ -1240,13 +1211,10 @@ def gef_makedirs(path, mode=0o755):
     if os.path.isdir(abspath):
         return abspath
 
-    if PYTHON_MAJOR == 3:
-        os.makedirs(path, mode=mode, exist_ok=True) #pylint: disable=unexpected-keyword-arg
-    else:
-        try:
-            os.makedirs(path, mode=mode)
-        except os.error:
-            pass
+    try:
+        os.makedirs(path, mode=mode)
+    except os.error:
+        pass
     return abspath
 
 
@@ -2390,16 +2358,14 @@ class MIPS(Architecture):
 
 def write_memory(address, buffer, length=0x10):
     """Write `buffer` at address `address`."""
-    if PYTHON_MAJOR == 2: buffer = str(buffer)
     return gdb.selected_inferior().write_memory(address, buffer, length)
 
 
 def read_memory(addr, length=0x10):
     """Return a `length` long byte array with the copy of the process memory at `addr`."""
-    if PYTHON_MAJOR == 2:
-        return gdb.selected_inferior().read_memory(addr, length)
+    print(hex(addr), hex(length))
+    return gdb.selected_inferior().read_memory(addr, length)
 
-    return gdb.selected_inferior().read_memory(addr, length).tobytes()
 
 
 def read_int_from_memory(addr):
@@ -2414,7 +2380,7 @@ def read_cstring_from_memory(address, max_length=GEF_MAX_STRING_LENGTH, encoding
     """Return a C-string read from memory."""
 
     if not encoding:
-        encoding = "unicode_escape" if PYTHON_MAJOR==3 else "ascii"
+        encoding = "ascii"
 
     char_ptr = cached_lookup_type("char").pointer()
 
@@ -2813,10 +2779,7 @@ def xor(data, key):
     """Return `data` xor-ed with `key`."""
     key = key.lstrip("0x")
     key = binascii.unhexlify(key)
-    if PYTHON_MAJOR == 2:
-        return b"".join([chr(ord(x) ^ ord(y)) for x, y in zip(data, itertools.cycle(key))])
-
-    return bytearray([x ^ y for x, y in zip(data, itertools.cycle(key))])
+    return b"".join([chr(ord(x) ^ ord(y)) for x, y in zip(data, itertools.cycle(key))])
 
 
 def is_hex(pattern):
@@ -2987,7 +2950,6 @@ def get_unicorn_registers(to_string=False):
 def keystone_assemble(code, arch, mode, *args, **kwargs):
     """Assembly encoding function based on keystone."""
     keystone = sys.modules["keystone"]
-    code = gef_pybytes(code)
     addr = kwargs.get("addr", 0x1000)
 
     try:
@@ -5161,7 +5123,6 @@ class SearchPatternCommand(GenericCommand):
 
     def search_pattern_by_address(self, pattern, start_address, end_address):
         """Search a pattern within a range defined by arguments."""
-        pattern = gef_pybytes(pattern)
         step = 0x400 * 0x1000
         locations = []
 
@@ -5313,7 +5274,7 @@ class ChangePermissionCommand(GenericCommand):
         try:
             __import__("keystone")
         except ImportError:
-            msg = "Missing `keystone-engine` package for Python{0}, install with: `pip{0} install keystone-engine`.".format(PYTHON_MAJOR)
+            msg = "Missing `keystone-engine` package for Python{0}, install with: `pip2 install keystone-engine`."
             raise ImportWarning(msg)
         return
 
@@ -5405,13 +5366,13 @@ class UnicornEmulateCommand(GenericCommand):
         try:
             __import__("unicorn")
         except ImportError:
-            msg = "Missing `unicorn` package for Python{0}. Install with `pip{0} install unicorn`.".format(PYTHON_MAJOR)
+            msg = "Missing `unicorn` package for Python2. Install with `pip2 install unicorn`."
             raise ImportWarning(msg)
 
         try:
             __import__("capstone")
         except ImportError:
-            msg = "Missing `capstone` package for Python{0}. Install with `pip{0} install capstone`.".format(PYTHON_MAJOR)
+            msg = "Missing `capstone` package for Python2. Install with `pip2 install capstone`."
             raise ImportWarning(msg)
         return
 
@@ -5649,7 +5610,7 @@ emulate(uc, {start:#x}, {end:#x})
 # unicorn-engine script generated by gef
 """.format(start=start_insn_addr, end=end_insn_addr)
 
-        os.write(tmp_fd, gef_pybytes(content))
+        os.write(tmp_fd, content)
         os.close(tmp_fd)
 
         if kwargs.get("to_file", None):
@@ -5661,7 +5622,7 @@ emulate(uc, {start:#x}, {end:#x})
 
         ok("Starting emulation: {:#x} {} {:#x}".format(start_insn_addr, RIGHT_ARROW, end_insn_addr))
 
-        pythonbin = "python{}".format(PYTHON_MAJOR)
+        pythonbin = which("python2.7")
         res = gef_execute_external([pythonbin, tmp_filename], as_list=True)
         gef_print("\n".join(res))
 
@@ -6016,7 +5977,7 @@ class CapstoneDisassembleCommand(GenericCommand):
         try:
             __import__("capstone")
         except ImportError:
-            msg = "Missing `capstone` package for Python{0}. Install with `pip{0} install capstone`.".format(PYTHON_MAJOR)
+            msg = "Missing `capstone` package for Python2. Install with `pip2 install capstone`."
             raise ImportWarning(msg)
         return
 
@@ -6147,7 +6108,7 @@ class GlibcHeapArenaCommand(GenericCommand):
             return
 
         while True:
-            gef_print("{}".format(arena))
+            gef_print("{}".format(str(arena)))
             arena = arena.get_next()
             if arena is None:
                 break
@@ -6739,7 +6700,7 @@ class ShellcodeGetCommand(GenericCommand):
         data = ret.split("\\n")[7:-11]
         buf = "\n".join(data)
         buf = HTMLParser().unescape(buf)
-        os.write(fd, gef_pybytes(buf))
+        os.write(fd, buf)
         os.close(fd)
         info("Shellcode written to '{:s}'".format(fname))
         return
@@ -6760,7 +6721,7 @@ class RopperCommand(GenericCommand):
         try:
             __import__("ropper")
         except ImportError:
-            msg = "Missing `ropper` package for Python{0}, install with: `pip{0} install ropper`.".format(PYTHON_MAJOR)
+            msg = "Missing `ropper` package for Python2, install with: `pip2 install ropper`."
             raise ImportWarning(msg)
         return
 
@@ -6812,7 +6773,7 @@ class AssembleCommand(GenericCommand):
         try:
             __import__("keystone")
         except ImportError:
-            msg = "Missing `keystone-engine` package for Python{0}, install with: `pip{0} install keystone-engine`.".format(PYTHON_MAJOR)
+            msg = "Missing `keystone-engine` package for Python2, install with: `pip2 install keystone-engine`."
             raise ImportWarning(msg)
         return
 
@@ -8702,8 +8663,8 @@ class PatternSearchCommand(GenericCommand):
 
         else:
             # 2. assume it's a plain string
-            pattern_be = gef_pybytes(pattern)
-            pattern_le = gef_pybytes(pattern[::-1])
+            pattern_be = pattern
+            pattern_le = pattern[::-1]
 
 
         cyclic_pattern = generate_cyclic_pattern(size)
@@ -9941,10 +9902,6 @@ def __gef_prompt__(current_prompt):
 
 
 if __name__  == "__main__":
-
-    if PYTHON_MAJOR == 2:
-        warn("GEF will stop support for GDB+Python2 when it reaches EOL on 2020/01/01.")
-        warn("See https://github.com/hugsy/gef/projects/4 for updates.")
 
     if GDB_VERSION < GDB_MIN_VERSION:
         err("You're using an old version of GDB. GEF will not work correctly. "

@@ -1,8 +1,38 @@
 import re
+import os
 import subprocess
 
 PATH_TO_DEFAULT_BINARY = "./tests/binaries/default.out"
 STRIP_ANSI_DEFAULT = True
+
+
+def which(program):
+    """Locate a command on the filesystem."""
+    def is_exe(fpath):
+        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+    fpath = os.path.split(program)[0]
+    if fpath:
+        if is_exe(program):
+            return program
+    else:
+        for path in os.environ["PATH"].split(os.pathsep):
+            path = path.strip('"')
+            exe_file = os.path.join(path, program)
+            if is_exe(exe_file):
+                return exe_file
+
+    raise IOError("Missing file `{:s}`".format(program))
+
+try:
+    gdb = os.getenv("GDB")
+    if not gdb:
+        raise IOError("nop")
+    GDB = which(gdb)
+    print("Using '{}'".format(GDB))
+except IOError:
+    GDB = which("gdb")
+    print("Using '{}'".format(GDB))
 
 def ansi_clean(s):
     ansi_escape = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]")
@@ -13,7 +43,7 @@ def gdb_run_cmd(cmd, before=None, after=None, target=PATH_TO_DEFAULT_BINARY, str
     """Execute a command inside GDB. `before` and `after` are lists of commands to be executed
     before (resp. after) the command to test."""
     command = [
-        "gdb", "-q", "-nx",
+        GDB, "-q", "-nx",
         "-ex", "source /tmp/gef.py",
         "-ex", "gef config gef.debug True"
     ]
