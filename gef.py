@@ -88,40 +88,101 @@ import time
 import traceback
 
 
-
-from HTMLParser import HTMLParser #pylint: disable=import-error
-from cStringIO import StringIO #pylint: disable=import-error
-from urllib import urlopen #pylint: disable=no-name-in-module
-import ConfigParser as configparser #pylint: disable=import-error
-import xmlrpclib #pylint: disable=import-error
+# MAIN CODE FROM GEF-LEGACY For Reverting
+#from HTMLParser import HTMLParser #pylint: disable=import-error
+#from cStringIO import StringIO #pylint: disable=import-error
+#from urllib import urlopen #pylint: disable=no-name-in-module
+#import ConfigParser as configparser #pylint: disable=import-error
+#import xmlrpclib #pylint: disable=import-error
 
 # Compat Py2/3 hacks
-def range(*args):
-   """
-   Replace range() builtin with an iterator version.
-   """
-   if len(args) < 1:
-       raise TypeError()
-   start, end, step = 0, args[0], 1
-   if len(args) == 2: start, end = args
-   if len(args) == 3: start, end, step = args
-   for n in itertools.count(start=start, step=step):
-       if (step>0 and n >= end) or (step<0 and n<=end): break
-       yield n
+#def range(*args):
+#   """
+#   Replace range() builtin with an iterator version.
+#   """
+#   if len(args) < 1:
+#       raise TypeError()
+#   start, end, step = 0, args[0], 1
+#   if len(args) == 2: start, end = args
+#   if len(args) == 3: start, end, step = args
+#   for n in itertools.count(start=start, step=step):
+#       if (step>0 and n >= end) or (step<0 and n<=end): break
+#       yield n
 
-FileNotFoundError = IOError #pylint: disable=redefined-builtin
-ConnectionRefusedError = socket.error #pylint: disable=redefined-builtin
+#FileNotFoundError = IOError #pylint: disable=redefined-builtin
+#ConnectionRefusedError = socket.error #pylint: disable=redefined-builtin
 
-LEFT_ARROW = "<-"
-RIGHT_ARROW = "->"
-DOWN_ARROW = "\\->"
-HORIZONTAL_LINE = "-"
-VERTICAL_LINE = "|"
-CROSS = "x"
-TICK = "v"
-GEF_PROMPT = "gef> "
-GEF_PROMPT_ON = "\001\033[1;32m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
-GEF_PROMPT_OFF = "\001\033[1;31m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
+#LEFT_ARROW = "<-"
+#RIGHT_ARROW = "->"
+#DOWN_ARROW = "\\->"
+#HORIZONTAL_LINE = "-"
+#VERTICAL_LINE = "|"
+#CROSS = "x"
+#TICK = "v"
+#GEF_PROMPT = "gef> "
+#GEF_PROMPT_ON = "\001\033[1;32m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
+#GEF_PROMPT_OFF = "\001\033[1;31m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
+
+## [MODIFIED CODE] --> TO SUITE BOTH Py Version 2/3
+PYTHON_MAJOR = sys.version_info[0]
+
+if PYTHON_MAJOR == 2:
+    from HTMLParser import HTMLParser #pylint: disable=import-error
+    from cStringIO import StringIO #pylint: disable=import-error
+    from urllib import urlopen #pylint: disable=no-name-in-module
+    import ConfigParser as configparser #pylint: disable=import-error
+    import xmlrpclib #pylint: disable=import-error
+
+    # Compat Py2/3 hacks
+    def range(*args):
+        """Replace range() builtin with an iterator version."""
+        if len(args) < 1:
+            raise TypeError()
+        start, end, step = 0, args[0], 1
+        if len(args) == 2: start, end = args
+        if len(args) == 3: start, end, step = args
+        for n in itertools.count(start=start, step=step):
+            if (step>0 and n >= end) or (step<0 and n<=end): break
+            yield n
+
+    FileNotFoundError = IOError #pylint: disable=redefined-builtin
+    ConnectionRefusedError = socket.error #pylint: disable=redefined-builtin
+
+    LEFT_ARROW = "<-"
+    RIGHT_ARROW = "->"
+    DOWN_ARROW = "\\->"
+    HORIZONTAL_LINE = "-"
+    VERTICAL_LINE = "|"
+    CROSS = "x"
+    TICK = "v"
+    GEF_PROMPT = "gef> "
+    GEF_PROMPT_ON = "\001\033[1;32m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
+    GEF_PROMPT_OFF = "\001\033[1;31m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
+
+elif PYTHON_MAJOR == 3:
+    from html.parser import HTMLParser #pylint: disable=import-error
+    from io import StringIO
+    from urllib.request import urlopen #pylint: disable=import-error,no-name-in-module
+    import configparser
+    import xmlrpc.client as xmlrpclib #pylint: disable=import-error
+
+    # Compat Py2/3 hack
+    long = int
+    unicode = str
+
+    LEFT_ARROW = " \u2190 "
+    RIGHT_ARROW = " \u2192 "
+    DOWN_ARROW = "\u21b3"
+    HORIZONTAL_LINE = "\u2500"
+    VERTICAL_LINE = "\u2502"
+    CROSS = "\u2718 "
+    TICK = "\u2713 "
+    GEF_PROMPT = "gef\u27a4  "
+    GEF_PROMPT_ON = "\001\033[1;32m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
+    GEF_PROMPT_OFF = "\001\033[1;31m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
+
+else:
+    raise Exception("WTF is this Python version??")
 
 
 def http_get(url):
