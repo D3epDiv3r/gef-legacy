@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 #
+# MAKE SURE TO CHECK GITDIFF USING A DIFF TOOL WITH ORIGINAL GEF-LEGACY SOURCE CODE
+# TO ESTABLISH THE CHANGES MADE.
 #
 #######################################################################################
-# GEF-Legacy
-#  - Multi-Architecture GDB Enhanced Features for Exploiters & Reverse-Engineers
+# GEF - Multi-Architecture GDB Enhanced Features for Exploiters & Reverse-Engineers
 #
 # by  @_hugsy_
 #######################################################################################
@@ -13,14 +14,11 @@
 # devs and reversers, to provides additional features to GDB using the Python
 # API to assist during the process of dynamic analysis.
 #
-# GEF-Legacy is the Python2 only version of the original GEF, which officially stopped
-# supporting by default Python2 when it became EOL (01/01/2020). GEF-Legacy doesn't
-# offer all the broad set of features that original GEF as only the command Python2
-# compatible can be found. In addition, as of 01/01/2020, no new feature is integrated
-# to this code base, although functional bugs are still being taken care of. Please
-# report them if you discover any.
+# GEF fully relies on GDB API and other Linux-specific sources of information
+# (such as /proc/<pid>). As a consequence, some of the features might not work
+# on custom or hardened systems such as GrSec.
 #
-# GEF-Legacy has full support for both Python2 and works on
+# It has full support for both Python2 and Python3 and works on
 #   * x86-32 & x86-64
 #   * arm v5,v6,v7
 #   * aarch64 (armv8)
@@ -28,7 +26,7 @@
 #   * powerpc & powerpc64
 #   * sparc & sparc64(v9)
 #
-# Requires GDB 7.x compiled with Python2
+# Requires GDB 7.x compiled with Python (2.x, or 3.x)
 #
 # To start: in gdb, type `source /path/to/gef.py`
 #
@@ -88,43 +86,8 @@ import time
 import traceback
 
 
-# MAIN CODE FROM GEF-LEGACY For Reverting
-#from HTMLParser import HTMLParser #pylint: disable=import-error
-#from cStringIO import StringIO #pylint: disable=import-error
-#from urllib import urlopen #pylint: disable=no-name-in-module
-#import ConfigParser as configparser #pylint: disable=import-error
-#import xmlrpclib #pylint: disable=import-error
-
-# Compat Py2/3 hacks
-#def range(*args):
-#   """
-#   Replace range() builtin with an iterator version.
-#   """
-#   if len(args) < 1:
-#       raise TypeError()
-#   start, end, step = 0, args[0], 1
-#   if len(args) == 2: start, end = args
-#   if len(args) == 3: start, end, step = args
-#   for n in itertools.count(start=start, step=step):
-#       if (step>0 and n >= end) or (step<0 and n<=end): break
-#       yield n
-
-#FileNotFoundError = IOError #pylint: disable=redefined-builtin
-#ConnectionRefusedError = socket.error #pylint: disable=redefined-builtin
-
-#LEFT_ARROW = "<-"
-#RIGHT_ARROW = "->"
-#DOWN_ARROW = "\\->"
-#HORIZONTAL_LINE = "-"
-#VERTICAL_LINE = "|"
-#CROSS = "x"
-#TICK = "v"
-#GEF_PROMPT = "gef> "
-#GEF_PROMPT_ON = "\001\033[1;32m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
-#GEF_PROMPT_OFF = "\001\033[1;31m\002{0:s}\001\033[0m\002".format(GEF_PROMPT)
-
-## [MODIFIED CODE] --> TO SUITE BOTH Py Version 2/3
 PYTHON_MAJOR = sys.version_info[0]
+
 
 if PYTHON_MAJOR == 2:
     from HTMLParser import HTMLParser #pylint: disable=import-error
@@ -202,7 +165,7 @@ def update_gef(argv):
     1 on failure. """
     gef_local = os.path.realpath(argv[0])
     hash_gef_local = hashlib.sha512(open(gef_local, "rb").read()).digest()
-    gef_remote = "https://raw.githubusercontent.com/hugsy/gef-legacy/master/gef.py"
+    gef_remote = "https://raw.githubusercontent.com/hugsy/gef/master/gef.py"
     gef_remote_data = http_get(gef_remote)
     if gef_remote_data is None:
         print("[-] Failed to get remote gef")
@@ -245,7 +208,6 @@ __gef_remote__                         = None
 __gef_qemu_mode__                      = False
 __gef_default_main_arena__             = "main_arena"
 __gef_int_stream_buffer__              = None
-__gef_redirect_output_fd__             = None
 
 DEFAULT_PAGE_ALIGN_SHIFT               = 12
 DEFAULT_PAGE_SIZE                      = 1 << DEFAULT_PAGE_ALIGN_SHIFT
@@ -263,68 +225,70 @@ current_arch = None
 highlight_table = {}
 ANSI_SPLIT_RE = "(\033\[[\d;]*m)"
 
+if PYTHON_MAJOR==3:
+    lru_cache = functools.lru_cache #pylint: disable=no-member
+else:
+    def lru_cache(maxsize = 128):
+        """Port of the Python3 LRU cache mechanism provided by itertools."""
+        class GefLruCache(object):
+            """Local LRU cache for Python2."""
+            def __init__(self, input_func, max_size):
+                self._input_func        = input_func
+                self._max_size          = max_size
+                self._caches_dict       = {}
+                self._caches_info       = {}
+                return
 
-def lru_cache(maxsize = 128):
-    """Port of the Python3 LRU cache mechanism provided by itertools."""
-    class GefLruCache(object):
-        """Local LRU cache for Python2."""
-        def __init__(self, input_func, max_size):
-            self._input_func        = input_func
-            self._max_size          = max_size
-            self._caches_dict       = {}
-            self._caches_info       = {}
-            return
+            def cache_info(self, caller=None):
+                """Return a string with statistics of cache usage."""
+                if caller not in self._caches_dict:
+                    return ""
+                hits = self._caches_info[caller]["hits"]
+                missed = self._caches_info[caller]["missed"]
+                cursz = len(self._caches_dict[caller])
+                return "CacheInfo(hits={}, misses={}, maxsize={}, currsize={})".format(hits, missed, self._max_size, cursz)
 
-        def cache_info(self, caller=None):
-            """Return a string with statistics of cache usage."""
-            if caller not in self._caches_dict:
-                return ""
-            hits = self._caches_info[caller]["hits"]
-            missed = self._caches_info[caller]["missed"]
-            cursz = len(self._caches_dict[caller])
-            return "CacheInfo(hits={}, misses={}, maxsize={}, currsize={})".format(hits, missed, self._max_size, cursz)
+            def cache_clear(self, caller=None):
+                """Clear a cache."""
+                if caller in self._caches_dict:
+                    self._caches_dict[caller] = collections.OrderedDict()
+                return
 
-        def cache_clear(self, caller=None):
-            """Clear a cache."""
-            if caller in self._caches_dict:
-                self._caches_dict[caller] = collections.OrderedDict()
-            return
+            def __get__(self, obj, objtype):
+                """Cache getter."""
+                return_func = functools.partial(self._cache_wrapper, obj)
+                return_func.cache_clear = functools.partial(self.cache_clear, obj)
+                return functools.wraps(self._input_func)(return_func)
 
-        def __get__(self, obj, objtype):
-            """Cache getter."""
-            return_func = functools.partial(self._cache_wrapper, obj)
-            return_func.cache_clear = functools.partial(self.cache_clear, obj)
-            return functools.wraps(self._input_func)(return_func)
+            def __call__(self, *args, **kwargs):
+                """Invoking the wrapped function, by attempting to get its value from cache if existing."""
+                return self._cache_wrapper(None, *args, **kwargs)
 
-        def __call__(self, *args, **kwargs):
-            """Invoking the wrapped function, by attempting to get its value from cache if existing."""
-            return self._cache_wrapper(None, *args, **kwargs)
+            __call__.cache_clear = cache_clear
+            __call__.cache_info  = cache_info
 
-        __call__.cache_clear = cache_clear
-        __call__.cache_info  = cache_info
+            def _cache_wrapper(self, caller, *args, **kwargs):
+                """Defines the caching mechanism."""
+                kwargs_key = "".join(map(lambda x : str(x) + str(type(kwargs[x])) + str(kwargs[x]), sorted(kwargs)))
+                key = "".join(map(lambda x : str(type(x)) + str(x) , args)) + kwargs_key
+                if caller not in self._caches_dict:
+                    self._caches_dict[caller] = collections.OrderedDict()
+                    self._caches_info[caller] = {"hits":0, "missed":0}
 
-        def _cache_wrapper(self, caller, *args, **kwargs):
-            """Defines the caching mechanism."""
-            kwargs_key = "".join(map(lambda x : str(x) + str(type(kwargs[x])) + str(kwargs[x]), sorted(kwargs)))
-            key = "".join(map(lambda x : str(type(x)) + str(x) , args)) + kwargs_key
-            if caller not in self._caches_dict:
-                self._caches_dict[caller] = collections.OrderedDict()
-                self._caches_info[caller] = {"hits":0, "missed":0}
+                cur_caller_cache_dict = self._caches_dict[caller]
+                if key in cur_caller_cache_dict:
+                    self._caches_info[caller]["hits"] += 1
+                    return cur_caller_cache_dict[key]
 
-            cur_caller_cache_dict = self._caches_dict[caller]
-            if key in cur_caller_cache_dict:
-                self._caches_info[caller]["hits"] += 1
+                self._caches_info[caller]["missed"] += 1
+                if self._max_size is not None:
+                    if len(cur_caller_cache_dict) >= self._max_size:
+                        cur_caller_cache_dict.popitem(False)
+
+                cur_caller_cache_dict[key] = self._input_func(caller, *args, **kwargs) if caller != None else self._input_func(*args, **kwargs)
                 return cur_caller_cache_dict[key]
 
-            self._caches_info[caller]["missed"] += 1
-            if self._max_size is not None:
-                if len(cur_caller_cache_dict) >= self._max_size:
-                    cur_caller_cache_dict.popitem(False)
-
-            cur_caller_cache_dict[key] = self._input_func(caller, *args, **kwargs) if caller != None else self._input_func(*args, **kwargs)
-            return cur_caller_cache_dict[key]
-
-    return lambda input_func: functools.wraps(input_func)(GefLruCache(input_func, maxsize))
+        return lambda input_func: functools.wraps(input_func)(GefLruCache(input_func, maxsize))
 
 
 def reset_all_caches():
@@ -384,7 +348,7 @@ def bufferize(f):
 
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
-        global __gef_int_stream_buffer__, __gef_redirect_output_fd__
+        global __gef_int_stream_buffer__
 
         if __gef_int_stream_buffer__:
             return f(*args, **kwargs)
@@ -393,32 +357,8 @@ def bufferize(f):
         try:
             rv = f(*args, **kwargs)
         finally:
-            redirect = get_gef_setting("context.redirect")
-            if redirect.startswith("/dev/pts/"):
-                if not __gef_redirect_output_fd__:
-                    # if the FD has never been open, open it
-                    fd = open(redirect, "wt")
-                    __gef_redirect_output_fd__ = fd
-                elif redirect != __gef_redirect_output_fd__.name:
-                    # if the user has changed the redirect setting during runtime, update the state
-                    __gef_redirect_output_fd__.close()
-                    fd = open(redirect, "wt")
-                    __gef_redirect_output_fd__ = fd
-                else:
-                    # otherwise, keep using it
-                    fd = __gef_redirect_output_fd__
-            else:
-                fd = sys.stdout
-                __gef_redirect_output_fd__ = None
-
-            if __gef_redirect_output_fd__ and fd.closed:
-                # if the tty was closed, revert back to stdout
-                fd = sys.stdout
-                __gef_redirect_output_fd__ = None
-                set_gef_setting("context.redirect", "")
-
-            fd.write(__gef_int_stream_buffer__.getvalue())
-            fd.flush()
+            sys.stdout.write(__gef_int_stream_buffer__.getvalue())
+            sys.stdout.flush()
             __gef_int_stream_buffer__ = None
         return rv
 
@@ -900,7 +840,7 @@ class GlibcChunk:
             self.chunk_base_address = addr
             self.address = addr + 2 * self.ptrsize
         else:
-            self.chunk_base_address = long(addr - 2 * self.ptrsize)
+            self.chunk_base_address = int(addr - 2 * self.ptrsize)
             self.address = addr
 
         self.size_addr  = int(self.address - self.ptrsize)
@@ -1149,10 +1089,15 @@ def show_last_exception():
 
 def gef_pystring(x):
     """Python 2 & 3 compatibility function for strings handling."""
-    res = x
+    res = str(x, encoding="utf-8") if PYTHON_MAJOR == 3 else x
     substs = [("\n","\\n"), ("\r","\\r"), ("\t","\\t"), ("\v","\\v"), ("\b","\\b"), ]
     for x,y in substs: res = res.replace(x,y)
     return res
+
+
+def gef_pybytes(x):
+    """Python 2 & 3 compatibility function for bytes handling."""
+    return bytes(str(x), encoding="utf-8") if PYTHON_MAJOR == 3 else x
 
 
 @lru_cache()
@@ -1297,10 +1242,13 @@ def gef_makedirs(path, mode=0o755):
     if os.path.isdir(abspath):
         return abspath
 
-    try:
-        os.makedirs(path, mode=mode)
-    except os.error:
-        pass
+    if PYTHON_MAJOR == 3:
+        os.makedirs(path, mode=mode, exist_ok=True) #pylint: disable=unexpected-keyword-arg
+    else:
+        try:
+            os.makedirs(path, mode=mode)
+        except os.error:
+            pass
     return abspath
 
 
@@ -1632,7 +1580,7 @@ class Architecture(object):
     def ptrsize(self):
         return get_memory_alignment()
 
-    def get_ith_parameter(self, i, in_func=True):
+    def get_ith_parameter(self, i):
         """Retrieves the correct parameter used for the current function call."""
         reg = self.function_parameters[i]
         val = get_register(reg)
@@ -2080,9 +2028,7 @@ class X86(Architecture):
             "popad",]
         return "; ".join(insns)
 
-    def get_ith_parameter(self, i, in_func=True):
-        if in_func:
-            i += 1 # Account for RA being at the top of the stack
+    def get_ith_parameter(self, i):
         sp = current_arch.sp
         sz =  current_arch.ptrsize
         loc = sp + (i * sz)
@@ -2253,6 +2199,7 @@ class SPARC(Architecture):
         return False
 
     def is_ret(self, insn):
+        # TODO: rett?
         return insn.mnemonic == "ret"
 
     def is_conditional_branch(self, insn):
@@ -2444,14 +2391,16 @@ class MIPS(Architecture):
 
 def write_memory(address, buffer, length=0x10):
     """Write `buffer` at address `address`."""
+    if PYTHON_MAJOR == 2: buffer = str(buffer)
     return gdb.selected_inferior().write_memory(address, buffer, length)
 
 
 def read_memory(addr, length=0x10):
     """Return a `length` long byte array with the copy of the process memory at `addr`."""
-    print(hex(addr), hex(length))
-    return gdb.selected_inferior().read_memory(addr, length)
+    if PYTHON_MAJOR == 2:
+        return gdb.selected_inferior().read_memory(addr, length)
 
+    return gdb.selected_inferior().read_memory(addr, length).tobytes()
 
 
 def read_int_from_memory(addr):
@@ -2466,17 +2415,17 @@ def read_cstring_from_memory(address, max_length=GEF_MAX_STRING_LENGTH, encoding
     """Return a C-string read from memory."""
 
     if not encoding:
-        encoding = "ascii"
+        encoding = "unicode_escape" if PYTHON_MAJOR==3 else "ascii"
 
     char_ptr = cached_lookup_type("char").pointer()
 
-    length = min(address|(DEFAULT_PAGE_SIZE-1), max_length+1)
     try:
-        res = gdb.Value(address).cast(char_ptr).string(encoding=encoding, length=length).strip()
+        res = gdb.Value(address).cast(char_ptr).string(encoding=encoding).strip()
     except gdb.error:
-        res = bytes(read_memory(address, length)).decode("utf-8")
+        length = min(address|(DEFAULT_PAGE_SIZE-1), max_length+1)
+        mem = bytes(read_memory(address, length)).decode("utf-8")
+        res = mem.split("\x00", 1)[0]
 
-    res = res.split("\x00", 1)[0]
     ustr = res.replace("\n","\\n").replace("\r","\\r").replace("\t","\\t")
     if max_length and len(res) > max_length:
         return "{}[...]".format(ustr[:max_length])
@@ -2865,7 +2814,10 @@ def xor(data, key):
     """Return `data` xor-ed with `key`."""
     key = key.lstrip("0x")
     key = binascii.unhexlify(key)
-    return b"".join([chr(ord(x) ^ ord(y)) for x, y in zip(data, itertools.cycle(key))])
+    if PYTHON_MAJOR == 2:
+        return b"".join([chr(ord(x) ^ ord(y)) for x, y in zip(data, itertools.cycle(key))])
+
+    return bytearray([x ^ y for x, y in zip(data, itertools.cycle(key))])
 
 
 def is_hex(pattern):
@@ -3036,6 +2988,7 @@ def get_unicorn_registers(to_string=False):
 def keystone_assemble(code, arch, mode, *args, **kwargs):
     """Assembly encoding function based on keystone."""
     keystone = sys.modules["keystone"]
+    code = gef_pybytes(code)
     addr = kwargs.get("addr", 0x1000)
 
     try:
@@ -3189,14 +3142,8 @@ def clear_screen(tty=""):
         gdb.execute("shell clear")
         return
 
-    # Since the tty can be closed at any time, a PermissionError exception can
-    # occur when `clear_screen` is called. We handle this scenario properly
-    try:
-        with open(tty, "wt") as f:
-            f.write("\x1b[H\x1b[J")
-    except PermissionError:
-        __gef_redirect_output_fd__ = None
-        set_gef_setting("context.redirect", "")
+    with open(tty, "w") as f:
+        f.write("\x1b[H\x1b[J")
     return
 
 
@@ -4672,11 +4619,13 @@ class PCustomCommand(GenericCommand):
             err("Invalid structure name '{:s}'".format(struct_name))
             return
 
-        _class, _struct = self.get_structure_class(mod_name, struct_name)
+        _class = self.get_class(mod_name, struct_name)
+        _offset = 0
 
-        for _name, _type in _struct._fields_:
+        for _name, _type in _class._fields_:
             _size = ctypes.sizeof(_type)
-            gef_print("+{:04x} {:s} {:s} ({:#x})".format(getattr(_class, _name).offset, _name, _type.__name__, _size))
+            gef_print("+{:04x} {:s} {:s} ({:#x})".format(_offset, _name, _type.__name__, _size))
+            _offset += _size
         return
 
 
@@ -4691,10 +4640,10 @@ class PCustomCommand(GenericCommand):
         return imp.load_source(modname, _fullname)
 
 
-    def get_structure_class(self, modname, classname):
+    def get_class(self, modname, classname):
         _mod = self.get_module(modname)
-        _class = getattr(_mod, classname)
-        return _class, _class()
+        return getattr(_mod, classname)()
+
 
     def list_all_structs(self, modname):
         _mod = self.get_module(modname)
@@ -4711,20 +4660,21 @@ class PCustomCommand(GenericCommand):
             return
 
         try:
-            _class, _struct = self.get_structure_class(mod_name, struct_name)
-            data = read_memory(addr, ctypes.sizeof(_struct))
+            _class = self.get_class(mod_name, struct_name)
+            data = read_memory(addr, ctypes.sizeof(_class))
         except gdb.MemoryError:
             err("{}Cannot reach memory {:#x}".format(" "*depth, addr))
             return
 
-        self.deserialize(_struct, data)
+        self.deserialize(_class, data)
 
         _regsize = get_memory_alignment()
+        _offset = 0
 
-        for field in _struct._fields_:
+        for field in _class._fields_:
             _name, _type = field
-            _value = getattr(_struct, _name)
-            _offset = getattr(_class, _name).offset
+            _size = ctypes.sizeof(_type)
+            _value = getattr(_class, _name)
 
             if    (_regsize == 4 and _type is ctypes.c_uint32) \
                or (_regsize == 8 and _type is ctypes.c_uint64) \
@@ -4736,13 +4686,16 @@ class PCustomCommand(GenericCommand):
             line += "  "*depth
             line += ("{:#x}+0x{:04x} {} : ".format(addr, _offset, _name)).ljust(40)
             line += "{} ({})".format(_value, _type.__name__)
-            parsed_value = self.get_ctypes_value(_struct, _name, _value)
+            parsed_value = self.get_ctypes_value(_class, _name, _value)
             if parsed_value:
                 line += " {} {}".format(RIGHT_ARROW, parsed_value)
             gef_print("".join(line))
 
             if issubclass(_type, ctypes.Structure):
                 self.apply_structure_to_address(mod_name, _type.__name__, addr + _offset, depth + 1)
+                _offset += ctypes.sizeof(_type)
+            else:
+                _offset += _size
         return
 
 
@@ -5215,6 +5168,7 @@ class SearchPatternCommand(GenericCommand):
 
     def search_pattern_by_address(self, pattern, start_address, end_address):
         """Search a pattern within a range defined by arguments."""
+        pattern = gef_pybytes(pattern)
         step = 0x400 * 0x1000
         locations = []
 
@@ -5366,7 +5320,7 @@ class ChangePermissionCommand(GenericCommand):
         try:
             __import__("keystone")
         except ImportError:
-            msg = "Missing `keystone-engine` package for Python{0}, install with: `pip2 install keystone-engine`."
+            msg = "Missing `keystone-engine` package for Python{0}, install with: `pip{0} install keystone-engine`.".format(PYTHON_MAJOR)
             raise ImportWarning(msg)
         return
 
@@ -5458,13 +5412,13 @@ class UnicornEmulateCommand(GenericCommand):
         try:
             __import__("unicorn")
         except ImportError:
-            msg = "Missing `unicorn` package for Python2. Install with `pip2 install unicorn`."
+            msg = "Missing `unicorn` package for Python{0}. Install with `pip{0} install unicorn`.".format(PYTHON_MAJOR)
             raise ImportWarning(msg)
 
         try:
             __import__("capstone")
         except ImportError:
-            msg = "Missing `capstone` package for Python2. Install with `pip2 install capstone`."
+            msg = "Missing `capstone` package for Python{0}. Install with `pip{0} install capstone`.".format(PYTHON_MAJOR)
             raise ImportWarning(msg)
         return
 
@@ -5702,7 +5656,7 @@ emulate(uc, {start:#x}, {end:#x})
 # unicorn-engine script generated by gef
 """.format(start=start_insn_addr, end=end_insn_addr)
 
-        os.write(tmp_fd, content)
+        os.write(tmp_fd, gef_pybytes(content))
         os.close(tmp_fd)
 
         if kwargs.get("to_file", None):
@@ -5714,7 +5668,7 @@ emulate(uc, {start:#x}, {end:#x})
 
         ok("Starting emulation: {:#x} {} {:#x}".format(start_insn_addr, RIGHT_ARROW, end_insn_addr))
 
-        pythonbin = which("python2.7")
+        pythonbin = "python{}".format(PYTHON_MAJOR)
         res = gef_execute_external([pythonbin, tmp_filename], as_list=True)
         gef_print("\n".join(res))
 
@@ -6069,7 +6023,7 @@ class CapstoneDisassembleCommand(GenericCommand):
         try:
             __import__("capstone")
         except ImportError:
-            msg = "Missing `capstone` package for Python2. Install with `pip2 install capstone`."
+            msg = "Missing `capstone` package for Python{0}. Install with `pip{0} install capstone`.".format(PYTHON_MAJOR)
             raise ImportWarning(msg)
         return
 
@@ -6200,7 +6154,7 @@ class GlibcHeapArenaCommand(GenericCommand):
             return
 
         while True:
-            gef_print("{}".format(str(arena)))
+            gef_print("{}".format(arena))
             arena = arena.get_next()
             if arena is None:
                 break
@@ -6792,7 +6746,7 @@ class ShellcodeGetCommand(GenericCommand):
         data = ret.split("\\n")[7:-11]
         buf = "\n".join(data)
         buf = HTMLParser().unescape(buf)
-        os.write(fd, buf)
+        os.write(fd, gef_pybytes(buf))
         os.close(fd)
         info("Shellcode written to '{:s}'".format(fname))
         return
@@ -6813,7 +6767,7 @@ class RopperCommand(GenericCommand):
         try:
             __import__("ropper")
         except ImportError:
-            msg = "Missing `ropper` package for Python2, install with: `pip2 install ropper`."
+            msg = "Missing `ropper` package for Python{0}, install with: `pip{0} install ropper`.".format(PYTHON_MAJOR)
             raise ImportWarning(msg)
         return
 
@@ -6865,7 +6819,7 @@ class AssembleCommand(GenericCommand):
         try:
             __import__("keystone")
         except ImportError:
-            msg = "Missing `keystone-engine` package for Python2, install with: `pip2 install keystone-engine`."
+            msg = "Missing `keystone-engine` package for Python{0}, install with: `pip{0} install keystone-engine`.".format(PYTHON_MAJOR)
             raise ImportWarning(msg)
         return
 
@@ -7542,7 +7496,7 @@ class ContextCommand(GenericCommand):
         args = []
 
         for i, f in enumerate(symbol.type.fields()):
-            _value = current_arch.get_ith_parameter(i, in_func=False)[1]
+            _value = current_arch.get_ith_parameter(i)[1]
             _value = RIGHT_ARROW.join(DereferenceCommand.dereference_from(_value))
             _name = f.name or "var_{}".format(i)
             _type = f.type.name or self.size2type[f.type.sizeof]
@@ -7612,7 +7566,7 @@ class ContextCommand(GenericCommand):
 
         args = []
         for i in range(nb_argument):
-            _key, _value = current_arch.get_ith_parameter(i, in_func=False)
+            _key, _value = current_arch.get_ith_parameter(i)
             _value = RIGHT_ARROW.join(DereferenceCommand.dereference_from(_value))
             args.append("{} = {}".format(Color.colorify(_key, arg_key_color), _value))
 
@@ -7785,26 +7739,18 @@ class ContextCommand(GenericCommand):
             err("No thread selected")
             return
 
-        selected_thread = gdb.selected_thread()
-
         for i, thread in enumerate(threads):
-            line = """[{:s}] Id {:d}, """.format(Color.colorify("#{:d}".format(i), "bold green" if thread==selected_thread  else "bold pink"), thread.num)
-            if thread.name:
-                line += """Name: "{:s}", """.format(thread.name)
+            line = """[{:s}] Id {:d}, Name: "{:s}", """.format(Color.colorify("#{:d}".format(i), "bold pink"),
+                                                               thread.num, thread.name or "")
             if thread.is_running():
                 line += Color.colorify("running", "bold green")
             elif thread.is_stopped():
                 line += Color.colorify("stopped", "bold red")
-                thread.switch()
-                frame = gdb.selected_frame()
-                line += " {:s} in {:s} ()".format(Color.colorify("{:#x}".format(frame.pc()), "blue"),Color.colorify(frame.name() or "??" ,"bold yellow"))
                 line += ", reason: {}".format(Color.colorify(reason(), "bold pink"))
             elif thread.is_exited():
                 line += Color.colorify("exited", "bold yellow")
             gef_print(line)
             i += 1
-
-        selected_thread.switch()
         return
 
 
@@ -7956,8 +7902,8 @@ class HexdumpCommand(GenericCommand):
     """Display SIZE lines of hexdump from the memory location pointed by ADDRESS. """
 
     _cmdline_ = "hexdump"
-    _syntax_  = "{:s} [qword|dword|word|byte] [ADDRESS] [[L][SIZE]] [REVERSE]".format(_cmdline_)
-    _example_ = "{:s} byte $rsp L16 REVERSE".format(_cmdline_)
+    _syntax_  = "{:s} (qword|dword|word|byte) ADDRESS [[L][SIZE]] [UP|DOWN] [S]".format(_cmdline_)
+    _example_ = "{:s} byte $rsp L16 DOWN".format(_cmdline_)
 
     def __init__(self):
         super(HexdumpCommand, self).__init__(complete=gdb.COMPLETE_LOCATION)
@@ -7966,39 +7912,44 @@ class HexdumpCommand(GenericCommand):
 
     @only_if_gdb_running
     def do_invoke(self, argv):
-        fmt = "byte"
-        target = "$sp"
+        argc = len(argv)
+        if argc < 2:
+            self.usage()
+            return
+
+        arg0, argv = argv[0].lower(), argv[1:]
         valid_formats = ["byte", "word", "dword", "qword"]
-        read_len = None
-        reverse = False
+        fmt = None
+        for valid_format in valid_formats:
+            if valid_format.startswith(arg0):
+                fmt = valid_format
+                break
+        if not fmt:
+            self.usage()
+            return
 
-        for arg in argv:
-            arg = arg.lower()
-            is_format_given = False
-            for valid_format in valid_formats:
-                if valid_format.startswith(arg):
-                    fmt = valid_format
-                    is_format_given = True
-                    break
-            if is_format_given:
-                continue
-            if arg.startswith("l"):
-                arg = arg[1:]
-            try:
-                read_len = long(arg, 0)
-                continue
-            except ValueError:
-                pass
-
-            if "reverse".startswith(arg):
-                reverse = True
-                continue
-            target = arg
-
-        start_addr = to_unsigned_long(gdb.parse_and_eval(target))
+        start_addr = to_unsigned_long(gdb.parse_and_eval(argv[0]))
         read_from = align_address(start_addr)
-        if not read_len:
-            read_len = 0x40 if fmt=="byte" else 0x10
+        read_len = 0x40 if fmt=="byte" else 0x10
+        up_to_down = True
+
+        if argc >= 2:
+            for arg in argv[1:]:
+                arg = arg.lower()
+                if arg.startswith("l"):
+                    arg = arg[1:]
+                try:
+                    read_len = long(arg, 0)
+                    continue
+                except ValueError:
+                    pass
+
+                if arg in {"up", "u"}:
+                    up_to_down = True
+                    continue
+                elif arg in {"down", "d"}:
+                    up_to_down = False
+                    continue
 
         if fmt == "byte":
             read_from += self.repeat_count * read_len
@@ -8007,7 +7958,7 @@ class HexdumpCommand(GenericCommand):
         else:
             lines = self._hexdump(read_from, read_len, fmt, self.repeat_count * read_len)
 
-        if reverse:
+        if not up_to_down:
             lines.reverse()
 
         gef_print("\n".join(lines))
@@ -8171,18 +8122,19 @@ class DereferenceCommand(GenericCommand):
 
     @only_if_gdb_running
     def do_invoke(self, argv):
-        target = "$sp"
+        argc = len(argv)
+
+        if argc < 1:
+            err("Missing location.")
+            return
+
         nb = 10
+        if argc==2 and argv[1][0] in ("l", "L") and argv[1][1:].isdigit():
+            nb = int(argv[1][1:])
+        elif argc == 2 and argv[1].isdigit():
+            nb = int(argv[1])
 
-        for arg in argv:
-            if arg.isdigit():
-                nb = int(arg)
-            elif arg[0] in ("l", "L") and arg[1:].isdigit():
-                nb = int(arg[1:])
-            else:
-                target = arg
-
-        addr = safe_parse_and_eval(target)
+        addr = safe_parse_and_eval(argv[0])
         if addr is None:
             err("Invalid address")
             return
@@ -8343,9 +8295,6 @@ class VMMapCommand(GenericCommand):
             err("No address mapping information found")
             return
 
-        if not get_gef_setting("gef.disable_color"):
-            self.show_legend()
-
         color = get_gef_setting("theme.table_heading")
 
         headers = ["Start", "End", "Offset", "Perm", "Path"]
@@ -8354,44 +8303,18 @@ class VMMapCommand(GenericCommand):
         for entry in vmmap:
             if argv and not argv[0] in entry.path:
                 continue
+            l = []
+            l.append(format_address(entry.page_start))
+            l.append(format_address(entry.page_end))
+            l.append(format_address(entry.offset))
 
-            self.print_entry(entry)
-        return
+            if entry.permission.value == (Permission.READ|Permission.WRITE|Permission.EXECUTE) :
+                l.append(Color.colorify(str(entry.permission), "bold red"))
+            else:
+                l.append(str(entry.permission))
 
-    def print_entry(self, entry):
-        line_color = ""
-        if entry.path == "[stack]":
-            line_color = get_gef_setting("theme.address_stack")
-        elif entry.path == "[heap]":
-            line_color = get_gef_setting("theme.address_heap")
-        elif entry.permission.value & Permission.READ and entry.permission.value & Permission.EXECUTE:
-            line_color = get_gef_setting("theme.address_code")
-
-        l = []
-        l.append(Color.colorify(format_address(entry.page_start), line_color))
-        l.append(Color.colorify(format_address(entry.page_end), line_color))
-        l.append(Color.colorify(format_address(entry.offset), line_color))
-
-        if entry.permission.value == (Permission.READ|Permission.WRITE|Permission.EXECUTE):
-            l.append(Color.colorify(str(entry.permission), "underline " + line_color))
-        else:
-            l.append(Color.colorify(str(entry.permission), line_color))
-
-        l.append(Color.colorify(entry.path, line_color))
-        line = " ".join(l)
-
-        gef_print(line)
-        return
-
-    def show_legend(self):
-        code_addr_color = get_gef_setting("theme.address_code")
-        stack_addr_color = get_gef_setting("theme.address_stack")
-        heap_addr_color = get_gef_setting("theme.address_heap")
-
-        gef_print("[ Legend:  {} | {} | {} ]".format(Color.colorify("Code", code_addr_color),
-                                                     Color.colorify("Heap", heap_addr_color),
-                                                     Color.colorify("Stack", stack_addr_color)
-        ))
+            l.append(entry.path)
+            gef_print(" ".join(l))
         return
 
 
@@ -8483,7 +8406,6 @@ class XAddressInfoCommand(GenericCommand):
             gef_print("Segment: {:s} ({:s}-{:s})".format(info.name,
                                                          format_address(info.zone_start),
                                                          format_address(info.zone_end)))
-            gef_print("Offset (from segment): {:#x}".format(addr.value-info.zone_start))
 
         sym = gdb_get_location_from_symbol(address)
         if sym:
@@ -8755,8 +8677,8 @@ class PatternSearchCommand(GenericCommand):
 
         else:
             # 2. assume it's a plain string
-            pattern_be = pattern
-            pattern_le = pattern[::-1]
+            pattern_be = gef_pybytes(pattern)
+            pattern_le = gef_pybytes(pattern[::-1])
 
 
         cyclic_pattern = generate_cyclic_pattern(size)
@@ -8824,10 +8746,10 @@ class ChecksecCommand(GenericCommand):
         for prop in sec:
             if prop in ("Partial RelRO", "Full RelRO"): continue
             val = sec[prop]
-            msg = Color.greenify(Color.boldify(TICK)) if val is True else Color.redify(Color.boldify(CROSS))
+            msg = Color.greenify("Yes") if val is True else Color.redify("No")
             if val and prop=="Canary" and is_alive():
                 canary = gef_read_canary()[0]
-                msg+= "(value: {:#x})".format(canary)
+                msg+= "{} value: {:#x}".format(RIGHT_ARROW, canary)
 
             gef_print("{:<30s}: {:s}".format(prop, msg))
 
@@ -8836,7 +8758,7 @@ class ChecksecCommand(GenericCommand):
         elif sec["Partial RelRO"]:
             gef_print("{:<30s}: {:s}".format("RelRO", Color.yellowify("Partial")))
         else:
-            gef_print("{:<30s}: {:s}".format("RelRO", Color.redify(Color.boldify(CROSS))))
+            gef_print("{:<30s}: {:s}".format("RelRO", Color.redify("No")))
         return
 
 
